@@ -13,6 +13,54 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
+# Load KEY=VALUE from a .env file. Does not override variables already set
+# in the environment (priority: exported env > .env > script defaults).
+# Supports comments, blank lines, optional "export ", and simple quoted values.
+load_dotenv() {
+  local file="$1"
+  local line key value
+
+  if [ ! -f "$file" ]; then
+    log "No .env at $file (using defaults / environment)"
+    return 0
+  fi
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+
+    line="${line#"${line%%[![:space:]]*}"}"
+    if [[ "$line" =~ ^export[[:space:]]+ ]]; then
+      line="${line#export}"
+      line="${line#"${line%%[![:space:]]*}"}"
+    fi
+
+    [[ "$line" == *=* ]] || continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    key="${key%"${key##*[![:space:]]}"}"
+    key="${key#"${key%%[![:space:]]*}"}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+
+    if [ -n "${!key+x}" ]; then
+      continue
+    fi
+
+    if [[ "$value" =~ ^\".*\"$ ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "$value" =~ ^\'.*\'$ ]]; then
+      value="${value:1:${#value}-2}"
+    else
+      value="${value%"${value##*[![:space:]]}"}"
+      value="${value#"${value%%[![:space:]]*}"}"
+    fi
+
+    export "${key}=${value}"
+  done < "$file"
+
+  log "Loaded env from $file"
+}
+
 backup_timestamp() {
   date +%Y%m%d_%H%M%S
 }
@@ -89,19 +137,11 @@ prune_local() {
   shopt -u nullglob
 }
 
-# Delete remote objects older than RETENTION_DAYS (by filename timestamp).
+# Delete remote/storage objects older than RETENTION_DAYS (by filename timestamp).
+# Implemented per-backend in lib/storage.sh as storage_prune / prune_remote.
 prune_remote() {
-  local retention_days="$1"
-  local now cutoff epoch name
-  now=$(date +%s)
-  cutoff=$((now - retention_days * 86400))
-
-  while IFS= read -r name; do
-    [ -n "$name" ] || continue
-    epoch=$(filename_to_epoch "$name")
-    if [ -n "$epoch" ] && [ "$epoch" -lt "$cutoff" ]; then
-      log "Removing old remote backup: $name"
-      storage_delete "$name"
-    fi
-  done < <(storage_list)
+  if ! declare -F storage_prune >/dev/null 2>&1; then
+    die "storage_prune is not available (source lib/storage.sh)"
+  fi
+  storage_prune "$@"
 }

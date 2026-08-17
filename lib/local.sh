@@ -25,8 +25,7 @@ local_object_path() {
   echo "$(local_dest_dir)/${name}"
 }
 
-# Copy local file into LOCAL_DIR; object name is the basename.
-storage_upload() {
+local_upload() {
   local local_file="$1"
   [ -f "$local_file" ] || die "file not found: $local_file"
   local_setup
@@ -38,16 +37,15 @@ storage_upload() {
   dest_real="$(cd "$(dirname "$dest")" && pwd)/$(basename "$dest")"
 
   if [ "$src_real" = "$dest_real" ]; then
-    log "Already at destination: $dest"
+    log "[local] Already at destination: $dest"
     return 0
   fi
 
-  log "Copying to $dest"
+  log "[local] Copying to $dest"
   cp -f "$local_file" "$dest"
 }
 
-# List object basenames under LOCAL_DIR[/LOCAL_PREFIX].
-storage_list() {
+local_list() {
   local_setup
   local dir
   dir=$(local_dest_dir)
@@ -59,12 +57,13 @@ storage_list() {
   shopt -u nullglob
 }
 
-storage_delete() {
+local_delete() {
   local name="$1"
   local_setup
   local path
   path=$(local_object_path "$name")
   if [ -f "$path" ]; then
+    log "[local] Removing $path"
     rm -f "$path"
   fi
 }

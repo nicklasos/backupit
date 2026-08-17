@@ -1,4 +1,5 @@
-# Local dumps, zips, and service-account credentials
+# Local dumps, zips, and secrets
+.env
 *.sql
 *.zip
 *.json

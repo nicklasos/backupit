@@ -1,38 +1,29 @@
 #!/usr/bin/env bash
-# Backup PostgreSQL to a zip archive and upload to object storage (GCS by default).
-# Run from crontab. Edit the config block below on the server.
+# Backup PostgreSQL to a zip archive and upload to configured storage(s).
+# Config: copy .env.example → .env (or export vars). See README.md.
 
 set -euo pipefail
 
-# =============================================================================
-# CONFIG — edit on the server
-# =============================================================================
-
-DATABASE_URL="postgres://root:pass@localhost:5432/smartcity_prod"
-
-STORAGE_TYPE="gcs" # gcs | local | s3 (s3 not implemented yet)
-
-GCS_BUCKET="your-backup-bucket"
-GCS_PREFIX="db"
-# Path to a service account JSON (used for unattended cron). Leave empty if
-# gcloud is already authenticated (e.g. gcloud auth application-default login).
-GCS_CREDENTIALS=""
-
-# Local disk (set STORAGE_TYPE=local):
-# LOCAL_DIR="/mnt/backups"
-# LOCAL_PREFIX="db"
-
-# Future S3 (reserved — set STORAGE_TYPE=s3 when lib/s3.sh is implemented):
-# S3_BUCKET=""
-# S3_PREFIX="db"
-# S3_REGION="eu-central-1"
-
-RETENTION_DAYS=14
-KEEP_LOCAL=1 # 1 = keep zip until retention prune; 0 = delete after successful upload
-
-# =============================================================================
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+source "${SCRIPT_DIR}/lib/common.sh"
+
+load_dotenv "${SCRIPT_DIR}/.env"
+
+# Defaults (only applied when unset after env / .env)
+: "${DATABASE_URL:=postgres://root:pass@localhost:5432/smartcity_prod}"
+: "${STORAGE_TYPE:=gcs}"
+: "${GCS_BUCKET:=your-backup-bucket}"
+: "${GCS_CREDENTIALS:=}"
+: "${GCS_PREFIX:=${GCS_PREFIX_DB:-db}}"
+: "${LOCAL_DIR:=}"
+: "${LOCAL_PREFIX:=${LOCAL_PREFIX_DB:-db}}"
+: "${S3_BUCKET:=}"
+: "${S3_REGION:=}"
+: "${S3_PREFIX:=${S3_PREFIX_DB:-db}}"
+: "${RETENTION_DAYS:=14}"
+: "${KEEP_LOCAL:=1}"
+
 # shellcheck source=lib/storage.sh
 source "${SCRIPT_DIR}/lib/storage.sh"
 

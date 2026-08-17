@@ -33,20 +33,18 @@ gcs_prefix_uri() {
   fi
 }
 
-# Upload local file; object name is the basename.
-storage_upload() {
+gcs_upload() {
   local local_file="$1"
   [ -f "$local_file" ] || die "file not found: $local_file"
   gcs_setup
   local name uri
   name=$(basename "$local_file")
   uri=$(gcs_object_uri "$name")
-  log "Uploading to $uri"
+  log "[gcs] Uploading to $uri"
   gcloud storage cp "$local_file" "$uri"
 }
 
-# List object basenames under GCS_PREFIX.
-storage_list() {
+gcs_list() {
   gcs_setup
   local uri
   uri=$(gcs_prefix_uri)
@@ -56,10 +54,11 @@ storage_list() {
   done
 }
 
-storage_delete() {
+gcs_delete() {
   local name="$1"
   gcs_setup
   local uri
   uri=$(gcs_object_uri "$name")
+  log "[gcs] Removing $uri"
   gcloud storage rm "$uri"
 }

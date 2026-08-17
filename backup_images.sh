@@ -1,38 +1,29 @@
 #!/usr/bin/env bash
-# Backup images directory to a zip archive and upload to object storage (GCS by default).
-# Run from crontab. Edit the config block below on the server.
+# Backup images directory to a zip archive and upload to configured storage(s).
+# Config: copy .env.example → .env (or export vars). See README.md.
 
 set -euo pipefail
 
-# =============================================================================
-# CONFIG — edit on the server
-# =============================================================================
-
-IMAGES_DIR="/var/www/smartcity/smartcity-files"
-
-STORAGE_TYPE="gcs" # gcs | local | s3 (s3 not implemented yet)
-
-GCS_BUCKET="your-backup-bucket"
-GCS_PREFIX="images"
-# Path to a service account JSON (used for unattended cron). Leave empty if
-# gcloud is already authenticated (e.g. gcloud auth application-default login).
-GCS_CREDENTIALS=""
-
-# Local disk (set STORAGE_TYPE=local):
-# LOCAL_DIR="/mnt/backups"
-# LOCAL_PREFIX="images"
-
-# Future S3 (reserved — set STORAGE_TYPE=s3 when lib/s3.sh is implemented):
-# S3_BUCKET=""
-# S3_PREFIX="images"
-# S3_REGION="eu-central-1"
-
-RETENTION_DAYS=14
-KEEP_LOCAL=1 # 1 = keep zip until retention prune; 0 = delete after successful upload
-
-# =============================================================================
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+source "${SCRIPT_DIR}/lib/common.sh"
+
+load_dotenv "${SCRIPT_DIR}/.env"
+
+# Defaults (only applied when unset after env / .env)
+: "${IMAGES_DIR:=/var/www/smartcity/smartcity-files}"
+: "${STORAGE_TYPE:=gcs}"
+: "${GCS_BUCKET:=your-backup-bucket}"
+: "${GCS_CREDENTIALS:=}"
+: "${GCS_PREFIX:=${GCS_PREFIX_IMAGES:-images}}"
+: "${LOCAL_DIR:=}"
+: "${LOCAL_PREFIX:=${LOCAL_PREFIX_IMAGES:-images}}"
+: "${S3_BUCKET:=}"
+: "${S3_REGION:=}"
+: "${S3_PREFIX:=${S3_PREFIX_IMAGES:-images}}"
+: "${RETENTION_DAYS:=14}"
+: "${KEEP_LOCAL:=1}"
+
 # shellcheck source=lib/storage.sh
 source "${SCRIPT_DIR}/lib/storage.sh"
 

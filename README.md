@@ -2,7 +2,8 @@
 
 Crontab-ready shell scripts that dump the database and images folder, zip them, upload to object storage, and prune old backups.
 
-**Storage backends:** Google Cloud Storage (`gcs`), local disk (`local`), Amazon S3 stub (`s3`).
+**Storage backends:** Google Cloud Storage (`gcs`), local disk (`local`), Amazon S3 stub (`s3`).  
+You can use **several at once**: `STORAGE_TYPE="local,gcs"` (comma-separated; spaces optional).
 
 Local staging files are created in this directory (`backupit/`), then copied/uploaded to the configured storage.
 
@@ -15,8 +16,8 @@ Local staging files are created in this directory (`backupit/`), then copied/upl
 
 Shared helpers:
 
-- `lib/common.sh` — logging, zip, retention by filename timestamp
-- `lib/storage.sh` — picks backend from `STORAGE_TYPE`
+- `lib/common.sh` — logging, `.env` loader, zip, retention by filename timestamp
+- `lib/storage.sh` — parses `STORAGE_TYPE` (one or more backends) and dispatches upload/prune
 - `lib/gcs.sh` — GCS via `gcloud storage`
 - `lib/local.sh` — copy to a directory on local (or mounted) disk
 - `lib/s3.sh` — stub (not implemented)
@@ -29,46 +30,75 @@ On the backup host:
 - For **GCS**: [Google Cloud SDK](https://cloud.google.com/sdk) (`gcloud`) with `gcloud storage` working, plus a bucket and a service account with `storage.objects.create` / `list` / `delete`
 - For **local disk**: a writable directory (external HDD/SSD, NAS mount, etc.)
 
-## Configuration
+## Configuration (`.env`)
 
-Edit the **CONFIG** block at the top of each script on the server (do not commit secrets).
+Both scripts share one file: `backupit/.env` (not committed).
 
-Shared variables:
+```bash
+cd /path/to/smartcity/backupit
+cp .env.example .env
+# edit .env on the server
+```
+
+**Priority:** already-exported environment variables → `.env` → script defaults.
+
+So crontab can override a single value without editing the file:
+
+```bash
+STORAGE_TYPE=local /var/www/smartcity/backupit/backup_db.sh
+```
 
 | Variable | Meaning |
 |----------|---------|
-| `STORAGE_TYPE` | `gcs`, `local` (alias: `disk`), or `s3` (stub) |
+| `STORAGE_TYPE` | One or more backends, comma-separated: `gcs`, `local` (alias `disk`), `s3` (stub). Example: `local,gcs` |
+| `DATABASE_URL` | Postgres URL for `backup_db.sh` |
+| `IMAGES_DIR` | Source images directory for `backup_images.sh` |
 | `GCS_BUCKET` | Bucket name (GCS) |
-| `GCS_PREFIX` | Object prefix (`db` / `images`) |
 | `GCS_CREDENTIALS` | Path to service account JSON (exported as `GOOGLE_APPLICATION_CREDENTIALS`) |
+| `GCS_PREFIX_DB` / `GCS_PREFIX_IMAGES` | Object prefixes (scripts map these to `GCS_PREFIX`) |
 | `LOCAL_DIR` | Root directory on disk for archives (local) |
-| `LOCAL_PREFIX` | Subdirectory under `LOCAL_DIR` (`db` / `images`) |
+| `LOCAL_PREFIX_DB` / `LOCAL_PREFIX_IMAGES` | Subdirs under `LOCAL_DIR` |
 | `RETENTION_DAYS` | Delete staging and storage backups older than this many days |
 | `KEEP_LOCAL` | `1` keep staging zip in `backupit/` until retention; `0` delete staging after successful upload/copy |
 
-Script-specific:
+### Multiple storages
 
-- `backup_db.sh`: `DATABASE_URL` — e.g. `postgres://user:pass@localhost:5432/dbname`
-- `backup_images.sh`: `IMAGES_DIR` — e.g. `/var/www/project/files`
+Upload the same archive to every listed backend (order left → right). Retention runs on each backend independently.
+
+```bash
+# in .env
+STORAGE_TYPE=local,gcs
+# later: STORAGE_TYPE=local,gcs,s3
+
+LOCAL_DIR=/mnt/backups
+LOCAL_PREFIX_DB=db
+LOCAL_PREFIX_IMAGES=images
+
+GCS_BUCKET=your-backup-bucket
+GCS_PREFIX_DB=db
+GCS_PREFIX_IMAGES=images
+GCS_CREDENTIALS=/var/www/smartcity/backupit/gcs-sa.json
+```
+
+If any backend fails, the script exits non-zero (after earlier backends may already have received the file).
 
 ### Local disk
 
-Point `STORAGE_TYPE` at a path on the machine (or a mounted USB/NAS volume):
-
 ```bash
-STORAGE_TYPE="local"
-LOCAL_DIR="/var/www/project/backups"   # or /var/www/project/backups
-LOCAL_PREFIX="db"          # → /var/www/project/backups/db/
+STORAGE_TYPE=local
+LOCAL_DIR=/mnt/backups
+LOCAL_PREFIX_DB=db
+LOCAL_PREFIX_IMAGES=images
 ```
 
-Archives are copied to `$LOCAL_DIR/$LOCAL_PREFIX/`. Retention deletes old files there via `storage_delete`. Staging zips in `backupit/` are still controlled by `KEEP_LOCAL`.
+Archives go to `$LOCAL_DIR/$LOCAL_PREFIX_*/`. Staging zips in `backupit/` are still controlled by `KEEP_LOCAL`.
 
 ### GCS auth for cron
 
-Cron has a minimal environment. Prefer a service account file:
+Prefer a service account file in `.env`:
 
 ```bash
-GCS_CREDENTIALS="/var/www/project/backupit/gcs-sa.json"
+GCS_CREDENTIALS=/var/www/smartcity/backupit/gcs-sa.json
 ```
 
 Or authenticate once as the cron user:
@@ -84,10 +114,10 @@ Ensure `gcloud` is on `PATH` for cron (use absolute path or set `PATH` in cronta
 ## Manual run
 
 ```bash
-cd /var/www/project/backupit   # or your checkout path
+cd /var/www/smartcity/backupit   # or your checkout path
+cp -n .env.example .env          # first time
 chmod +x backup_db.sh backup_images.sh
 
-# After editing CONFIG on the server:
 ./backup_db.sh
 ./backup_images.sh
 ```
@@ -98,12 +128,12 @@ Use absolute paths. Example (daily DB at 02:00, images at 03:00):
 
 ```cron
 PATH=/usr/local/bin:/usr/bin:/bin
-0 2 * * * /var/www/project/backupit/backup_db.sh >> /var/www/project/backupit/logs/backup_db.log 2>&1
-0 3 * * * /var/www/project/backupit/backup_images.sh >> /var/www/project/backupit/logs/backup_images.log 2>&1
+0 2 * * * /var/www/smartcity/backupit/backup_db.sh >> /var/www/smartcity/backupit/logs/backup_db.log 2>&1
+0 3 * * * /var/www/smartcity/backupit/backup_images.sh >> /var/www/smartcity/backupit/logs/backup_images.log 2>&1
 ```
 
 ```bash
-mkdir -p /var/www/project/backupit/logs
+mkdir -p /var/www/smartcity/backupit/logs
 ```
 
 ## Object naming
@@ -175,13 +205,12 @@ Or restore with a matching modern `psql` that understands `\restrict`.
 
 ## Adding Amazon S3 later
 
-1. Implement `storage_upload`, `storage_list`, and `storage_delete` in `lib/s3.sh` (e.g. `aws s3 cp` / `ls` / `rm`).
-2. Uncomment / set `S3_BUCKET`, `S3_PREFIX`, `S3_REGION` (and AWS credentials) in the CONFIG blocks.
-3. Set `STORAGE_TYPE="s3"` in each script.
+1. Implement `s3_upload`, `s3_list`, and `s3_delete` in `lib/s3.sh` (e.g. `aws s3 cp` / `ls` / `rm`).
+2. Set `S3_BUCKET`, `S3_REGION`, `S3_PREFIX_DB` / `S3_PREFIX_IMAGES` (and AWS credentials) in `.env`.
+3. Add `s3` to `STORAGE_TYPE`, e.g. `STORAGE_TYPE=local,gcs,s3`.
 
 No changes to the main backup flow are required.
 
 ## Related
 
-Local-only backup/restore helpers (no cloud upload) still live under `project/stuff/db_backup.sh` and `project/stuff/images_backup.sh`.
-# backupit
+Local-only backup/restore helpers (no cloud upload) still live under `smartcity-api/stuff/db_backup.sh` and `smartcity-api/stuff/images_backup.sh`.
