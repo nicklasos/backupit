@@ -160,7 +160,7 @@ Ensure `gcloud` is on `PATH` for cron (use absolute path or set `PATH` in cronta
 ## Manual run
 
 ```bash
-cd /var/www/smartcity/backupit   # or your checkout path
+cd /var/www/backupit   # or your checkout path
 cp -n .env.example .env          # first time
 chmod +x backup_db.sh backup_images.sh
 
