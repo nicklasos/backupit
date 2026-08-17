@@ -57,8 +57,8 @@ Point `STORAGE_TYPE` at a path on the machine (or a mounted USB/NAS volume):
 
 ```bash
 STORAGE_TYPE="local"
-LOCAL_DIR="/mnt/backups"   # or /var/www/project/backups
-LOCAL_PREFIX="db"          # → /mnt/backups/db/
+LOCAL_DIR="/var/www/project/backups"   # or /var/www/project/backups
+LOCAL_PREFIX="db"          # → /var/www/project/backups/db/
 ```
 
 Archives are copied to `$LOCAL_DIR/$LOCAL_PREFIX/`. Retention deletes old files there via `storage_delete`. Staging zips in `backupit/` are still controlled by `KEEP_LOCAL`.
