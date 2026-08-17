@@ -11,12 +11,15 @@ Local staging files are created in this directory (`backupit/`), then copied/upl
 
 | Script | What it does |
 |--------|----------------|
-| `backup_db.sh` | `pg_dump` → strip `\restrict` lines → zip → upload → prune |
+| `backup_db.sh` | dump Postgres or MySQL → zip → upload → prune |
 | `backup_images.sh` | zip images dir → upload → prune |
 
 Shared helpers:
 
 - `lib/common.sh` — logging, `.env` loader, zip, retention by filename timestamp
+- `lib/db_url.sh` — `DATABASE_URL` parsing and `DB_ENGINE` normalization
+- `lib/db_postgres.sh` — `pg_dump` + strip `\restrict`
+- `lib/db_mysql.sh` — `mysqldump`
 - `lib/storage.sh` — parses `STORAGE_TYPE` (one or more backends) and dispatches upload/prune
 - `lib/gcs.sh` — GCS via `gcloud storage`
 - `lib/local.sh` — copy to a directory on local (or mounted) disk
@@ -26,7 +29,9 @@ Shared helpers:
 
 On the backup host:
 
-- `bash`, `pg_dump`, `psql` (for restore), `zip`, `unzip`, `sed`
+- `bash`, `zip`, `unzip`, `sed`
+- **PostgreSQL backups:** `pg_dump` (and `psql` for restore)
+- **MySQL backups:** `mysqldump` (and `mysql` client for restore)
 - For **GCS**: [Google Cloud SDK](https://cloud.google.com/sdk) (`gcloud`) with `gcloud storage` working, plus a bucket and a service account with `storage.objects.create` / `list` / `delete`
 - For **local disk**: a writable directory (external HDD/SSD, NAS mount, etc.)
 
@@ -51,7 +56,8 @@ STORAGE_TYPE=local /var/www/smartcity/backupit/backup_db.sh
 | Variable | Meaning |
 |----------|---------|
 | `STORAGE_TYPE` | One or more backends, comma-separated: `gcs`, `local` (alias `disk`), `s3` (stub). Example: `local,gcs` |
-| `DATABASE_URL` | Postgres URL for `backup_db.sh` |
+| `DB_ENGINE` | Required: `postgres` or `mysql` |
+| `DATABASE_URL` | DB URL for `backup_db.sh` — e.g. `postgres://…` or `mysql://user:pass@host:3306/dbname` |
 | `IMAGES_DIR` | Source images directory for `backup_images.sh` |
 | `GCS_BUCKET` | Bucket name (GCS) |
 | `GCS_CREDENTIALS` | Path to service account JSON (exported as `GOOGLE_APPLICATION_CREDENTIALS`) |
@@ -60,6 +66,46 @@ STORAGE_TYPE=local /var/www/smartcity/backupit/backup_db.sh
 | `LOCAL_PREFIX_DB` / `LOCAL_PREFIX_IMAGES` | Subdirs under `LOCAL_DIR` |
 | `RETENTION_DAYS` | Delete staging and storage backups older than this many days |
 | `KEEP_LOCAL` | `1` keep staging zip in `backupit/` until retention; `0` delete staging after successful upload/copy |
+
+### Database engines
+
+`backup_db.sh` supports **PostgreSQL** and **MySQL** (one engine per run). Set the engine explicitly in `.env`:
+
+```bash
+DB_ENGINE=postgres   # or mysql
+```
+
+Aliases accepted: `postgresql`, `pg` → postgres; `mariadb` → mysql.
+
+**PostgreSQL**
+
+```bash
+DB_ENGINE=postgres
+DATABASE_URL=postgres://user:pass@localhost:5432/smartcity_prod
+```
+
+Dump uses `pg_dump -Fp --no-owner --no-acl`, then strips `\restrict` / `\unrestrict` lines.
+
+Restore:
+
+```bash
+psql "$DATABASE_URL" -f db_20260817_020000.sql
+```
+
+**MySQL**
+
+```bash
+DB_ENGINE=mysql
+DATABASE_URL=mysql://user:pass@localhost:3306/smartcity_prod
+```
+
+Dump uses `mysqldump --single-transaction --routines --triggers --events --no-tablespaces`.
+
+Restore:
+
+```bash
+mysql -h host -P 3306 -u user -p dbname < db_20260817_020000.sql
+```
 
 ### Multiple storages
 
@@ -124,16 +170,30 @@ chmod +x backup_db.sh backup_images.sh
 
 ## Crontab
 
-Use absolute paths. Example (daily DB at 02:00, images at 03:00):
+Use absolute paths and a sane `PATH` (cron’s default is minimal). Example: DB + images twice a day (noon and 02:00):
 
 ```cron
 PATH=/usr/local/bin:/usr/bin:/bin
-0 2 * * * /var/www/smartcity/backupit/backup_db.sh >> /var/www/smartcity/backupit/logs/backup_db.log 2>&1
-0 3 * * * /var/www/smartcity/backupit/backup_images.sh >> /var/www/smartcity/backupit/logs/backup_images.log 2>&1
+
+# Noon
+0 12 * * * /var/www/backupit/backup_db.sh >> /var/www/backupit/logs/backup_db.log 2>&1
+5 12 * * * /var/www/backupit/backup_images.sh >> /var/www/backupit/logs/backup_images.log 2>&1
+
+# Middle of the night (02:00 / 02:05)
+0 2 * * * /var/www/backupit/backup_db.sh >> /var/www/backupit/logs/backup_db.log 2>&1
+5 2 * * * /var/www/backupit/backup_images.sh >> /var/www/backupit/logs/backup_images.log 2>&1
 ```
 
+Images are offset by 5 minutes so they do not start at the same second as the DB dump. Times use the server timezone (`timedatectl` / `/etc/localtime`).
+
+### Install / one-time setup
+
 ```bash
-mkdir -p /var/www/smartcity/backupit/logs
+mkdir -p /var/www/backupit/logs
+chmod +x /var/www/backupit/backup_db.sh /var/www/backupit/backup_images.sh
+# ensure .env exists and is configured:
+#   cd /var/www/backupit && cp -n .env.example .env && nano .env
+crontab -e   # paste the cron lines above
 ```
 
 ## Object naming
@@ -162,10 +222,14 @@ cp /mnt/backups/db/db_20260817_020000.sql.zip .
 unzip db_20260817_020000.sql.zip
 # produces db_20260817_020000.sql
 
+# PostgreSQL
 psql "postgres://user:pass@localhost:5432/dbname" -f db_20260817_020000.sql
+
+# MySQL
+# mysql -h host -P 3306 -u user -p dbname < db_20260817_020000.sql
 ```
 
-New dumps from `backup_db.sh` already have `\restrict` / `\unrestrict` removed so older `psql` and GUI clients work.
+Postgres dumps from `backup_db.sh` already have `\restrict` / `\unrestrict` removed so older `psql` and GUI clients work.
 
 ### Images
 

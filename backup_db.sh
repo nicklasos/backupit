@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Backup PostgreSQL to a zip archive and upload to configured storage(s).
+# Backup PostgreSQL or MySQL to a zip archive and upload to configured storage(s).
 # Config: copy .env.example → .env (or export vars). See README.md.
 
 set -euo pipefail
@@ -7,11 +7,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "${SCRIPT_DIR}/lib/common.sh"
+# shellcheck source=lib/db_url.sh
+source "${SCRIPT_DIR}/lib/db_url.sh"
 
 load_dotenv "${SCRIPT_DIR}/.env"
 
 # Defaults (only applied when unset after env / .env)
 : "${DATABASE_URL:=postgres://root:pass@localhost:5432/smartcity_prod}"
+# DB_ENGINE must be set in .env (postgres | mysql) — no URL auto-detect
 : "${STORAGE_TYPE:=gcs}"
 : "${GCS_BUCKET:=your-backup-bucket}"
 : "${GCS_CREDENTIALS:=}"
@@ -24,40 +27,48 @@ load_dotenv "${SCRIPT_DIR}/.env"
 : "${RETENTION_DAYS:=14}"
 : "${KEEP_LOCAL:=1}"
 
+resolve_db_engine
+export DB_ENGINE
+
+case "$DB_ENGINE" in
+  postgres)
+    # shellcheck source=lib/db_postgres.sh
+    source "${SCRIPT_DIR}/lib/db_postgres.sh"
+    ;;
+  mysql)
+    # shellcheck source=lib/db_mysql.sh
+    source "${SCRIPT_DIR}/lib/db_mysql.sh"
+    ;;
+  *)
+    die "unsupported DB_ENGINE: $DB_ENGINE"
+    ;;
+esac
+
 # shellcheck source=lib/storage.sh
 source "${SCRIPT_DIR}/lib/storage.sh"
 
-require_cmd pg_dump
 require_cmd zip
 require_cmd unzip
-require_cmd sed
 
 TIMESTAMP=$(backup_timestamp)
-SQL_RAW="${SCRIPT_DIR}/db_${TIMESTAMP}.raw.sql"
 SQL_FILE="${SCRIPT_DIR}/db_${TIMESTAMP}.sql"
 ZIP_FILE="${SCRIPT_DIR}/db_${TIMESTAMP}.sql.zip"
 
 cleanup_partial() {
-  rm -f "$SQL_RAW" "$SQL_FILE"
+  rm -f "$SQL_FILE" "${SQL_FILE}.raw"
   if [ -f "$ZIP_FILE" ] && [ "${UPLOAD_OK:-0}" != "1" ]; then
     rm -f "$ZIP_FILE"
   fi
 }
 trap cleanup_partial EXIT
 
-log "Starting DB backup"
-log "Database URL host: $(echo "$DATABASE_URL" | sed -E 's|postgres(ql)?://[^@]*@([^/]+)/.*|\2|')"
+log "Starting DB backup (engine=$DB_ENGINE)"
+log "Database host: $(database_url_host "$DATABASE_URL")"
 
-if ! pg_dump -Fp --no-owner --no-acl -f "$SQL_RAW" "$DATABASE_URL"; then
-  die "pg_dump failed"
-fi
-
-if [ ! -s "$SQL_RAW" ]; then
-  die "dump file is empty or missing"
-fi
-
-strip_pg_restrict "$SQL_RAW" "$SQL_FILE"
-rm -f "$SQL_RAW"
+case "$DB_ENGINE" in
+  postgres) dump_postgres "$SQL_FILE" ;;
+  mysql) dump_mysql "$SQL_FILE" ;;
+esac
 
 if ! zip_file "$SQL_FILE" "$ZIP_FILE"; then
   die "failed to create zip archive"
