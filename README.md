@@ -1,8 +1,6 @@
-# SmartCity backups (`backupit/`)
+# Backups
 
 Crontab-ready shell scripts that dump the database and images folder, zip them, upload to object storage, and prune old backups.
-
-Lives at the **SmartCity monorepo root** (`smartcity/backupit/`), not inside `smartcity-api`.
 
 **Storage backends:** Google Cloud Storage (`gcs`), local disk (`local`), Amazon S3 stub (`s3`).
 
@@ -50,8 +48,8 @@ Shared variables:
 
 Script-specific:
 
-- `backup_db.sh`: `DATABASE_URL` — e.g. `postgres://user:pass@localhost:5432/smartcity_prod`
-- `backup_images.sh`: `IMAGES_DIR` — e.g. `/var/www/smartcity/smartcity-files`
+- `backup_db.sh`: `DATABASE_URL` — e.g. `postgres://user:pass@localhost:5432/dbname`
+- `backup_images.sh`: `IMAGES_DIR` — e.g. `/var/www/project/files`
 
 ### Local disk
 
@@ -59,7 +57,7 @@ Point `STORAGE_TYPE` at a path on the machine (or a mounted USB/NAS volume):
 
 ```bash
 STORAGE_TYPE="local"
-LOCAL_DIR="/mnt/backups"   # or /Volumes/BackupDrive/smartcity
+LOCAL_DIR="/mnt/backups"   # or /var/www/project/backups
 LOCAL_PREFIX="db"          # → /mnt/backups/db/
 ```
 
@@ -70,7 +68,7 @@ Archives are copied to `$LOCAL_DIR/$LOCAL_PREFIX/`. Retention deletes old files 
 Cron has a minimal environment. Prefer a service account file:
 
 ```bash
-GCS_CREDENTIALS="/var/www/smartcity/backupit/gcs-sa.json"
+GCS_CREDENTIALS="/var/www/project/backupit/gcs-sa.json"
 ```
 
 Or authenticate once as the cron user:
@@ -86,7 +84,7 @@ Ensure `gcloud` is on `PATH` for cron (use absolute path or set `PATH` in cronta
 ## Manual run
 
 ```bash
-cd /var/www/smartcity/backupit   # or your checkout path
+cd /var/www/project/backupit   # or your checkout path
 chmod +x backup_db.sh backup_images.sh
 
 # After editing CONFIG on the server:
@@ -100,12 +98,12 @@ Use absolute paths. Example (daily DB at 02:00, images at 03:00):
 
 ```cron
 PATH=/usr/local/bin:/usr/bin:/bin
-0 2 * * * /var/www/smartcity/backupit/backup_db.sh >> /var/www/smartcity/backupit/logs/backup_db.log 2>&1
-0 3 * * * /var/www/smartcity/backupit/backup_images.sh >> /var/www/smartcity/backupit/logs/backup_images.log 2>&1
+0 2 * * * /var/www/project/backupit/backup_db.sh >> /var/www/project/backupit/logs/backup_db.log 2>&1
+0 3 * * * /var/www/project/backupit/backup_images.sh >> /var/www/project/backupit/logs/backup_images.log 2>&1
 ```
 
 ```bash
-mkdir -p /var/www/smartcity/backupit/logs
+mkdir -p /var/www/project/backupit/logs
 ```
 
 ## Object naming
@@ -134,7 +132,7 @@ cp /mnt/backups/db/db_20260817_020000.sql.zip .
 unzip db_20260817_020000.sql.zip
 # produces db_20260817_020000.sql
 
-psql "postgres://user:pass@localhost:5432/smartcity_prod" -f db_20260817_020000.sql
+psql "postgres://user:pass@localhost:5432/dbname" -f db_20260817_020000.sql
 ```
 
 New dumps from `backup_db.sh` already have `\restrict` / `\unrestrict` removed so older `psql` and GUI clients work.
@@ -149,7 +147,7 @@ gcloud storage cp gs://YOUR_BUCKET/images/images_20260817_030000.zip .
 cp /mnt/backups/images/images_20260817_030000.zip .
 
 unzip images_20260817_030000.zip -d /tmp/images-restore
-# copy contents into IMAGES_DIR (e.g. /var/www/smartcity/smartcity-files)
+# copy contents into IMAGES_DIR (e.g. /var/www/project/files)
 ```
 
 ## `\restrict` in older dumps
@@ -185,5 +183,5 @@ No changes to the main backup flow are required.
 
 ## Related
 
-Local-only backup/restore helpers (no cloud upload) still live under `smartcity-api/stuff/db_backup.sh` and `smartcity-api/stuff/images_backup.sh`.
+Local-only backup/restore helpers (no cloud upload) still live under `project/stuff/db_backup.sh` and `project/stuff/images_backup.sh`.
 # backupit

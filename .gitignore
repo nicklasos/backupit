@@ -1,0 +1,6 @@
+# Local dumps, zips, and service-account credentials
+*.sql
+*.zip
+*.json
+logs/*
+!logs/.gitkeep
