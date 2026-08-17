@@ -65,7 +65,7 @@ STORAGE_TYPE=local /var/www/smartcity/backupit/backup_db.sh
 | `LOCAL_DIR` | Root directory on disk for archives (local) |
 | `LOCAL_PREFIX_DB` / `LOCAL_PREFIX_IMAGES` | Subdirs under `LOCAL_DIR` |
 | `RETENTION_DAYS` | Delete staging and storage backups older than this many days |
-| `KEEP_LOCAL` | `1` keep staging zip in `backupit/` until retention; `0` delete staging after successful upload/copy |
+| `KEEP_LOCAL` | `0` (default) delete staging zip after successful upload; `1` keep in `backupit/` until retention |
 
 ### Database engines
 

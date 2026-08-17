@@ -22,7 +22,7 @@ load_dotenv "${SCRIPT_DIR}/.env"
 : "${S3_REGION:=}"
 : "${S3_PREFIX:=${S3_PREFIX_IMAGES:-images}}"
 : "${RETENTION_DAYS:=14}"
-: "${KEEP_LOCAL:=1}"
+: "${KEEP_LOCAL:=0}"
 
 # shellcheck source=lib/storage.sh
 source "${SCRIPT_DIR}/lib/storage.sh"
