@@ -1,13 +1,55 @@
 #!/usr/bin/env bash
 
+# Private gcloud config for this key. Keeps the host-wide account in
+# ~/.config/gcloud unchanged so other projects can use their own keys.
+_gcs_config_dir() {
+  local root id
+  if [ -n "${SCRIPT_DIR:-}" ]; then
+    root="$SCRIPT_DIR"
+  else
+    root="$(cd "${_BACKUPIT_LIB_DIR}/.." && pwd)"
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    id=$(printf '%s' "$GCS_CREDENTIALS" | sha256sum | cut -d' ' -f1)
+  else
+    id=$(printf '%s' "$GCS_CREDENTIALS" | shasum -a 256 | cut -d' ' -f1)
+  fi
+  printf '%s\n' "${root}/.gcloud/${id}"
+}
+
+_gcs_activate_key() {
+  local cfg sum stamp
+  cfg=$(_gcs_config_dir)
+  mkdir -p "$cfg"
+  chmod 700 "$cfg"
+  export CLOUDSDK_CONFIG="$cfg"
+  export CLOUDSDK_CORE_DISABLE_PROMPTS=1
+  export GOOGLE_APPLICATION_CREDENTIALS="$GCS_CREDENTIALS"
+
+  sum=$(cksum "$GCS_CREDENTIALS")
+  stamp="${cfg}/key.cksum"
+  if [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$sum" ]; then
+    return 0
+  fi
+
+  log "[gcs] Activating service account from $GCS_CREDENTIALS"
+  gcloud auth activate-service-account --key-file="$GCS_CREDENTIALS" --quiet \
+    || die "failed to activate service account from $GCS_CREDENTIALS"
+  printf '%s\n' "$sum" > "$stamp"
+}
+
 gcs_setup() {
   require_cmd gcloud
   if [ -z "${GCS_BUCKET:-}" ]; then
     die "GCS_BUCKET is not set"
   fi
-  if [ -n "${GCS_CREDENTIALS:-}" ]; then
-    export GOOGLE_APPLICATION_CREDENTIALS="$GCS_CREDENTIALS"
+  if [ -z "${GCS_CREDENTIALS:-}" ]; then
+    die "GCS_CREDENTIALS is not set (path to this project's service account JSON)"
   fi
+  if [ ! -f "$GCS_CREDENTIALS" ]; then
+    die "GCS_CREDENTIALS file not found: $GCS_CREDENTIALS"
+  fi
+  _gcs_activate_key
 }
 
 gcs_object_uri() {

@@ -60,7 +60,7 @@ STORAGE_TYPE=local /var/www/smartcity/backupit/backup_db.sh
 | `DATABASE_URL` | DB URL for `backup_db.sh` — e.g. `postgres://…` or `mysql://user:pass@host:3306/dbname` |
 | `IMAGES_DIR` | Source images directory for `backup_images.sh` |
 | `GCS_BUCKET` | Bucket name (GCS) |
-| `GCS_CREDENTIALS` | Path to service account JSON (exported as `GOOGLE_APPLICATION_CREDENTIALS`) |
+| `GCS_CREDENTIALS` | Path to this project's service account JSON. Required for the `gcs` backend. |
 | `GCS_PREFIX_DB` / `GCS_PREFIX_IMAGES` | Object prefixes (scripts map these to `GCS_PREFIX`) |
 | `LOCAL_DIR` | Root directory on disk for archives (local) |
 | `LOCAL_PREFIX_DB` / `LOCAL_PREFIX_IMAGES` | Subdirs under `LOCAL_DIR` |
@@ -141,21 +141,17 @@ Archives go to `$LOCAL_DIR/$LOCAL_PREFIX_*/`. Staging zips in `backupit/` are st
 
 ### GCS auth for cron
 
-Prefer a service account file in `.env`:
+Set `GCS_CREDENTIALS` in this project's `.env` to that project's service account JSON:
 
 ```bash
 GCS_CREDENTIALS=/var/www/smartcity/backupit/gcs-sa.json
 ```
 
-Or authenticate once as the cron user:
+The script activates that key in a private gcloud config under `backupit/.gcloud/` and does not change the account in `~/.config/gcloud`. Other projects on the same server keep their own keys, including when two backups run at the same time.
 
-```bash
-gcloud auth application-default login
-# or
-gcloud auth activate-service-account --key-file=/path/to/sa.json
-```
+Bucket, service account, and `gcloud` install steps are in [GCS_SETUP.md](GCS_SETUP.md).
 
-Ensure `gcloud` is on `PATH` for cron (use absolute path or set `PATH` in crontab).
+`gcloud` must be on `PATH` for cron. The apt package installs it to `/usr/bin/gcloud`.
 
 ## Manual run
 

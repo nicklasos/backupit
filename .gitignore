@@ -3,5 +3,6 @@
 *.sql
 *.zip
 *.json
+.gcloud/
 logs/*
 !logs/.gitkeep
