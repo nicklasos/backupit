@@ -87,23 +87,17 @@ storage_upload() {
   done
 }
 
-# Prune old objects on each backend independently (by filename timestamp).
+# Prune old objects on each backend independently (see backups_to_delete).
 storage_prune() {
   local retention_days="$1"
-  local now cutoff epoch name b
-  now=$(date +%s)
-  cutoff=$((now - retention_days * 86400))
+  local name b
 
   for b in "${STORAGE_BACKENDS[@]}"; do
     log "Pruning old backups on storage: $b"
     while IFS= read -r name; do
-      [ -n "$name" ] || continue
-      epoch=$(filename_to_epoch "$name")
-      if [ -n "$epoch" ] && [ "$epoch" -lt "$cutoff" ]; then
-        log "Removing old backup on $b: $name"
-        "${b}_delete" "$name" || die "delete failed for $b: $name"
-      fi
-    done < <("${b}_list")
+      log "Removing old backup on $b: $name"
+      "${b}_delete" "$name" || die "delete failed for $b: $name"
+    done < <("${b}_list" | backups_to_delete "$retention_days")
   done
 }
 

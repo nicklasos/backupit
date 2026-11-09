@@ -65,6 +65,8 @@ STORAGE_TYPE=local /var/www/smartcity/backupit/backup_db.sh
 | `LOCAL_DIR` | Root directory on disk for archives (local) |
 | `LOCAL_PREFIX_DB` / `LOCAL_PREFIX_IMAGES` | Subdirs under `LOCAL_DIR` |
 | `RETENTION_DAYS` | Delete staging and storage backups older than this many days |
+| `KEEP_WEEKLY_DAY` | `mon`..`sun` (or `1`..`7`): keep the first backup made on this day each week past `RETENTION_DAYS`. Empty (default) = off |
+| `KEEP_WEEKLY_DAYS` | How long those weekly backups are kept, in days (default `365`; `0` = forever) |
 | `KEEP_LOCAL` | `0` (default) delete staging zip after successful upload; `1` keep in `backupit/` until retention |
 
 ### Database engines
@@ -203,6 +205,8 @@ Stored under:
 - Local: `$LOCAL_DIR/$LOCAL_PREFIX/`
 
 Retention uses the `YYYYMMDD_HHMMSS` in the filename (not mtime), so the same logic works for GCS, local disk, and a future S3 backend.
+
+With `KEEP_WEEKLY_DAY=sun` and `KEEP_WEEKLY_DAYS=365`, a server backing up twice a day keeps every backup from the last 14 days plus the first Sunday backup of each week for a year.
 
 ## Restore
 

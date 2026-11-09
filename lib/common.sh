@@ -115,29 +115,82 @@ zip_dir() {
   unzip -tq "$zip_path" >/dev/null 2>&1 || return 1
 }
 
-# Delete local files matching prefix_*.zip older than RETENTION_DAYS (by filename timestamp).
-prune_local() {
-  local dir="$1"
-  local prefix="$2"
-  local retention_days="$3"
-  local now cutoff epoch name
+# Format epoch seconds with date(1) on macOS or Linux: epoch_format EPOCH +FORMAT
+epoch_format() {
+  date -r "$1" "$2" 2>/dev/null || date -d "@$1" "$2"
+}
+
+# KEEP_WEEKLY_DAY (mon..sun or 1..7, empty = off) as ISO weekday 1..7.
+weekly_day_number() {
+  case "$(echo "${KEEP_WEEKLY_DAY:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+    "") ;;
+    1|mon|monday) echo 1 ;;
+    2|tue|tuesday) echo 2 ;;
+    3|wed|wednesday) echo 3 ;;
+    4|thu|thursday) echo 4 ;;
+    5|fri|friday) echo 5 ;;
+    6|sat|saturday) echo 6 ;;
+    7|sun|sunday) echo 7 ;;
+    *) die "KEEP_WEEKLY_DAY must be mon..sun or 1..7, got '${KEEP_WEEKLY_DAY}'" ;;
+  esac
+}
+
+# Read backup names on stdin, print the ones to delete.
+# A backup older than RETENTION_DAYS is deleted, except the first backup of each
+# KEEP_WEEKLY_DAY, which is kept for KEEP_WEEKLY_DAYS (default 365; 0 = forever).
+backups_to_delete() {
+  local retention_days="$1"
+  local weekly_day weekly_days now cutoff weekly_cutoff name epoch ts key last_key=""
+  weekly_day=$(weekly_day_number)
+  weekly_days="${KEEP_WEEKLY_DAYS:-365}"
   now=$(date +%s)
   cutoff=$((now - retention_days * 86400))
+  weekly_cutoff=$((now - weekly_days * 86400))
 
+  sort | while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    epoch=$(filename_to_epoch "$name")
+    [ -n "$epoch" ] || continue
+    [ "$epoch" -lt "$cutoff" ] || continue
+
+    if [ -n "$weekly_day" ] && [ "$(epoch_format "$epoch" +%u)" = "$weekly_day" ]; then
+      ts=$(echo "$name" | grep -oE '[0-9]{8}_[0-9]{6}' | head -1)
+      key="${name%%_[0-9]*}_${ts:0:8}"
+      if [ "$key" != "$last_key" ]; then
+        last_key="$key"
+        if [ "$weekly_days" = "0" ] || [ "$epoch" -ge "$weekly_cutoff" ]; then
+          continue
+        fi
+      fi
+    fi
+
+    echo "$name"
+  done
+}
+
+list_local_backups() {
+  local dir="$1" prefix="$2" f
   shopt -s nullglob
   for f in "$dir"/${prefix}_*.zip; do
-    [ -f "$f" ] || continue
-    name=$(basename "$f")
-    epoch=$(filename_to_epoch "$name")
-    if [ -n "$epoch" ] && [ "$epoch" -lt "$cutoff" ]; then
-      log "Removing old local backup: $name"
-      rm -f "$f"
-    fi
+    [ -f "$f" ] && basename "$f"
   done
   shopt -u nullglob
 }
 
-# Delete remote/storage objects older than RETENTION_DAYS (by filename timestamp).
+# Delete local files matching prefix_*.zip that backups_to_delete selects.
+prune_local() {
+  local dir="$1"
+  local prefix="$2"
+  local retention_days="$3"
+  local name
+
+  while IFS= read -r name; do
+    log "Removing old local backup: $name"
+    rm -f "${dir:?}/$name"
+  done < <(list_local_backups "$dir" "$prefix" | backups_to_delete "$retention_days")
+}
+
+# Delete remote/storage objects that backups_to_delete selects.
 # Implemented per-backend in lib/storage.sh as storage_prune / prune_remote.
 prune_remote() {
   if ! declare -F storage_prune >/dev/null 2>&1; then

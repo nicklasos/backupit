@@ -25,6 +25,8 @@ load_dotenv "${SCRIPT_DIR}/.env"
 : "${S3_REGION:=}"
 : "${S3_PREFIX:=${S3_PREFIX_DB:-db}}"
 : "${RETENTION_DAYS:=14}"
+: "${KEEP_WEEKLY_DAY:=}"
+: "${KEEP_WEEKLY_DAYS:=365}"
 : "${KEEP_LOCAL:=0}"
 
 resolve_db_engine
